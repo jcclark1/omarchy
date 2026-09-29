@@ -1,5 +1,26 @@
 # Omarchy Server — a headless amd64 profile
 
+## Status (2026-09-29)
+
+Implemented and unit-tested on branch `server-profile` in both forks
+(`jcclark1/omarchy`, `jcclark1/omarchy-iso`):
+
+- **omarchy runtime**: `install/omarchy-server.packages`; `OMARCHY_PROFILE`
+  resolver (`install/helpers/profile.sh`) wired into `omarchy-apply-system`;
+  `install/login/headless.sh` (multi-user + console autologin) branched in
+  `login/all.sh` and `config/enable-services.sh` (sshd on, sddm/cups/avahi off);
+  `omarchy-provision-user` + `user/all.sh` keep git + mise (delayed packages)
+  and skip desktop leaves. 12 shell tests.
+- **omarchy-iso**: `omarchy-iso-make --headless` threads `OMARCHY_PROFILE`;
+  `build-iso.sh` ships the server manifest in the mirror + bakes the profile
+  marker + headless dashboard count; the orchestrator resolves the profile,
+  defaults the kernel to stock `linux`, pacstraps the server manifest, and
+  writes `/etc/omarchy/profile`. 11 Python tests (80 total green).
+
+**Remaining (needs a build host):** a real `omarchy-iso-make --headless
+--local-source ../omarchy` build (Docker), then the QEMU install +
+`test/integration.d/` scenario. Not runnable in the dev sandbox.
+
 ## Context
 
 Omarchy's value splits in two: a **desktop layer** (Hyprland, Waybar/quickshell,
