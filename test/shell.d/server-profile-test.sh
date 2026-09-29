@@ -54,6 +54,13 @@ grep -Fq "systemctl set-default multi-user.target" "$INSTALL/login/headless.sh" 
   fail "headless login boots to multi-user.target"
 pass "headless login boots to multi-user.target"
 
+# A newline in the username would inject directives into the getty drop-in.
+if OMARCHY_INSTALL_USER=$'bob\nExecStartPre=/tmp/x' bash -c \
+  'systemctl(){ :; }; install(){ echo "install $*"; }; source "'"$INSTALL"'/login/headless.sh"' >/dev/null 2>&1; then
+  fail "headless login refuses an invalid autologin username"
+fi
+pass "headless login refuses an invalid autologin username"
+
 # --- service enablement branching ---
 
 services() {
