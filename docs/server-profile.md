@@ -56,10 +56,11 @@ server manifest.
 - `install/helpers/profile.sh` — resolves+exports `OMARCHY_PROFILE`
 - `install/login/headless.sh` — multi-user.target + tty1 autologin
 - `install/login/all.sh`, `install/config/enable-services.sh` — profile branches
+- `install/config/firewall.sh` — server opens SSH (not LocalSend) through ufw
 - `install/user/all.sh` — keeps git+mise, guards desktop leaves
 - `bin/omarchy-apply-system` — sources the profile helper
 - `bin/omarchy-provision-user` — guards graphical finalization
-- `test/shell.d/server-profile-test.sh` — 12 tests
+- `test/shell.d/server-profile-test.sh` — 14 tests
 
 `omarchy-iso`:
 - `bin/omarchy-iso-make` — `--headless` flag → `OMARCHY_PROFILE`
@@ -69,6 +70,9 @@ server manifest.
 - `orchestrator/phases_impl.py` — server manifest selection, target marker,
   `configure_login` server no-op
 - `test/unit/test_server_profile.py` — profile/kernel/login/manifest tests
+- `test/integration.d/headless-server-test.sh` — end-to-end QEMU scenario;
+  `base-test.sh` records each base's profile so scenarios skip bases they
+  don't apply to (`factory-reset` skips on a server base)
 
 ## Build
 
@@ -113,9 +117,10 @@ QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
 
 ## Remaining
 
-- A green end-to-end QEMU install run + a `test/integration.d/headless-server.sh`
-  scenario (the repo's integration harness boots a real install and drives it
-  over guest SSH).
+- Build the ISO (see Build; needs sudo in a real terminal) and get a green run
+  of the integration scenario, which does the whole QEMU install + assertions:
+  `cd ~/Projects/omarchy-iso && ./test/integration release/<iso> headless-server`
+  (`--reuse-base` on reruns). Not yet run — no ISO has been built.
 - Optionally open PRs to `omacom/omarchy` and `omacom/omarchy-iso`.
 - Not in scope (deliberately): ARM/Raspberry-Pi, cloud-VPS images, a bootstrap
   script for existing machines.
