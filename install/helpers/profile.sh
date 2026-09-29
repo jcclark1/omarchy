@@ -5,8 +5,8 @@
 # absent or unrecognized value means the default "desktop" profile. A preset
 # OMARCHY_PROFILE env var wins, which is how the builder and tests select it.
 
-if [[ -z ${OMARCHY_PROFILE:-} && -r /etc/omarchy/profile ]]; then
-  read -r OMARCHY_PROFILE </etc/omarchy/profile
+if [[ -z ${OMARCHY_PROFILE:-} && -r ${OMARCHY_PROFILE_FILE:-/etc/omarchy/profile} ]]; then
+  read -r OMARCHY_PROFILE <"${OMARCHY_PROFILE_FILE:-/etc/omarchy/profile}"
 fi
 
 case "${OMARCHY_PROFILE:-}" in
