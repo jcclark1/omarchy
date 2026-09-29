@@ -19,8 +19,9 @@ chmod +x "$mock_bin"/*
 # Omarchy ships, so the install suite is stubbed out at its path instead. The
 # real one rethemes the session it runs in: hyprctl reload against the live
 # compositor, gsettings against the live desktop, and a global Node install.
-mkdir -p "$test_tmp/install/user"
+mkdir -p "$test_tmp/install/user" "$test_tmp/install/helpers"
 : >"$test_tmp/install/user/all.sh"
+cp "$ROOT/install/helpers/profile.sh" "$test_tmp/install/helpers/profile.sh"
 
 HOME="$test_tmp/home" PATH="$mock_bin:$ROOT/bin:$PATH" OMARCHY_PATH="$ROOT" \
   OMARCHY_INSTALL="$test_tmp/install" bash "$ROOT/bin/omarchy-provision-user" >/dev/null ||
