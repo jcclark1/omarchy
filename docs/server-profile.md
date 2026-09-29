@@ -7,7 +7,7 @@ Omarchy's existing archiso builder, not a separate distro or a bootstrap script.
 
 ## Where the work lives
 
-Two forks, cloned as siblings under `~/Projects`, both on branch `server-profile`
+Three forks, cloned as siblings under `~/Projects`, all on branch `server-profile`
 (`origin` = `jcclark1/*`, `upstream` = `omacom/*`):
 
 - `~/Projects/omarchy` — the runtime (`/usr/share/omarchy` payload)
@@ -15,7 +15,7 @@ Two forks, cloned as siblings under `~/Projects`, both on branch `server-profile
 - `~/Projects/omarchy-pkgs` — custom package PKGBUILDs (needed by `--local-source`)
 
 Resume by reading this file, then `git -C ~/Projects/omarchy log --oneline` and
-the same in `omarchy-iso`. Base is `4.0.0.alpha` on the `quattro` branch.
+the same in `omarchy-iso` and `omarchy-pkgs`. Base is `4.0.0.alpha` on the `quattro` branch.
 
 ## How the profile works
 
@@ -42,6 +42,25 @@ Install-time flow (server):
 5. `configure_login` (orchestrator) is a no-op on server, so it does not clobber
    the console autologin or try to enable sddm.
 
+## Server runtime package
+
+The desktop runtime package (`omarchy` / `omarchy-dev`) hard-depends on
+hyprland, quickshell, uwsm, sddm, pipewire, wireplumber, gnome-keyring and a
+font, so a server cannot install it without the desktop stack. The runtime
+PKGBUILDs in omarchy-pkgs are therefore split packages that also emit
+`omarchy-server` / `omarchy-server-dev`: the same payload from the same
+`_commit`, with only the non-desktop dependencies (and the shared x86_64 boot
+stack), `provides=omarchy`, `conflicts=omarchy`.
+
+- `build-iso.sh` selects the server name when `OMARCHY_PROFILE=server`, and
+  `build-omarchy-packages.sh` builds it from the desktop recipe's directory.
+- On the installed system, `omarchy-pkg-runtime` prints whichever runtime
+  package is installed; `omarchy-version`, `-debug`, `-update-available` and
+  `-channel-current` use it, and `omarchy-channel-set` keeps a server on the
+  server variant across channel switches.
+- A non-`--local-source` headless ISO needs `omarchy-server` published in the
+  package repo, which only happens once the omarchy-pkgs change lands upstream.
+
 ## Delayed packages / mise
 
 `install/user/mise.sh` writes mise wrappers (claude, codex, gemini, gh, copilot,
@@ -54,13 +73,16 @@ server manifest.
 `omarchy`:
 - `install/omarchy-server.packages` — the server manifest (source of truth)
 - `install/helpers/profile.sh` — resolves+exports `OMARCHY_PROFILE`
-- `install/login/headless.sh` — multi-user.target + tty1 autologin
+- `install/login/headless.sh` — multi-user.target + tty1 autologin (validated username)
 - `install/login/all.sh`, `install/config/enable-services.sh` — profile branches
 - `install/config/firewall.sh` — server opens SSH (not LocalSend) through ufw
 - `install/user/all.sh` — keeps git+mise, guards desktop leaves
 - `bin/omarchy-apply-system` — sources the profile helper
 - `bin/omarchy-provision-user` — guards graphical finalization
-- `test/shell.d/server-profile-test.sh` — 14 tests
+- `bin/omarchy-pkg-runtime` — names the installed runtime package; used by
+  `omarchy-version`, `-debug`, `-update-available`, `-channel-current`, `-channel-set`
+- `test/shell.d/server-profile-test.sh` — 15 tests; server cases also in the
+  channel, version and update-available tests
 
 `omarchy-iso`:
 - `bin/omarchy-iso-make` — `--headless` flag → `OMARCHY_PROFILE`
@@ -70,9 +92,15 @@ server manifest.
 - `orchestrator/phases_impl.py` — server manifest selection, target marker,
   `configure_login` server no-op
 - `test/unit/test_server_profile.py` — profile/kernel/login/manifest tests
+- `builder/build-omarchy-packages.sh` — builds the server runtime from its
+  split recipe; `test/unit/runtime-package-selection-test.sh` covers both
 - `test/integration.d/headless-server-test.sh` — end-to-end QEMU scenario;
   `base-test.sh` records each base's profile so scenarios skip bases they
   don't apply to (`factory-reset` skips on a server base)
+
+`omarchy-pkgs`:
+- `pkgbuilds/omarchy/PKGBUILD`, `pkgbuilds/omarchy-dev/PKGBUILD` — split into
+  the desktop and server runtime packages (see Server runtime package)
 
 ## Build
 
@@ -87,17 +115,22 @@ cd ~/Projects/omarchy-iso
 ```
 
 Output: `~/Projects/omarchy-iso/release/omarchy-*-local.iso`. The local build
-compiles only three small config packages (omarchy, omarchy-settings,
-omarchy-nvim); the rest, including stock `linux`, download into the mirror. Add
+compiles only three small config packages (omarchy-server-dev, via the
+omarchy-dev split recipe, plus omarchy-settings-dev and omarchy-nvim); the rest, including stock `linux`, download into the mirror. Add
 `--no-cache` if a half-finished run left stale cache.
 
 ## Test
 
 Unit tests (no Docker/VM; run from each repo):
 - `omarchy`: `./test/shell` (or just `bash test/shell.d/server-profile-test.sh`)
-- `omarchy-iso`: `python3 -m unittest discover -t . -s test/unit` (84 pass;
-  stdlib unittest, no pytest). Pre-existing unrelated failure in `omarchy`'s
-  `test/cli`: "vscode generated theme references current theme file".
+- `omarchy-iso`: `./test/all` (shell unit tests + 84 stdlib unittest tests;
+  no pytest).
+- Pre-existing failures unrelated to this branch (they fail on the `quattro`
+  merge base too): `omarchy`'s `test/cli` "vscode generated theme references
+  current theme file", and 9 `test/shell.d` files: elsewhen-migration,
+  kernel-headers-migration, launch-browser, network-captive-portal,
+  omarchy-kernel-migration, passwordless-grant-lifecycle, runtime-smoke,
+  screenshot-sanity, video-background.
 
 Verify a built ISO (before booting): loopback-mount it and check
 `usr/share/omarchy-iso/profile` = `server`, that `omarchy-server.packages` is
@@ -121,6 +154,10 @@ QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
   of the integration scenario, which does the whole QEMU install + assertions:
   `cd ~/Projects/omarchy-iso && ./test/integration release/<iso> headless-server`
   (`--reuse-base` on reruns). Not yet run — no ISO has been built.
-- Optionally open PRs to `omacom/omarchy` and `omacom/omarchy-iso`.
+- The first headless build failed resolving the install set because the
+  desktop runtime's desktop dependencies were not in the server mirror; fixed
+  by the server runtime package above. Rebuild to confirm.
+- Optionally open PRs to `omacom/omarchy`, `omacom/omarchy-iso` and
+  `omacom/omarchy-pkgs` (the pkgs change must land for non-local headless ISOs).
 - Not in scope (deliberately): ARM/Raspberry-Pi, cloud-VPS images, a bootstrap
   script for existing machines.
