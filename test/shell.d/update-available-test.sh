@@ -15,7 +15,7 @@ cat >"$stub_bin/checkupdates" <<'SH'
 #!/bin/bash
 case "${TEST_CHECKUPDATES:-updates}" in
   updates)
-    printf 'linux 6.1-1 -> 6.1-2\nomarchy 4.0.0-1 -> 4.0.1-1\nomarchy-settings 4.0.0-1 -> 4.0.1-1\nomarchy-dev 4.1.0-1 -> 4.1.1-1\nomarchy-settings-dev 4.1.0-1 -> 4.1.1-1\n'
+    printf 'linux 6.1-1 -> 6.1-2\nomarchy 4.0.0-1 -> 4.0.1-1\nomarchy-settings 4.0.0-1 -> 4.0.1-1\nomarchy-dev 4.1.0-1 -> 4.1.1-1\nomarchy-settings-dev 4.1.0-1 -> 4.1.1-1\nomarchy-server 4.0.0-1 -> 4.0.1-1\n'
     exit 0
     ;;
   none)
@@ -32,19 +32,16 @@ chmod +x "$stub_bin/checkupdates"
 cat >"$stub_bin/pacman" <<'SH'
 #!/bin/bash
 case "$1" in
-  -Qq)
+  -Q | -Qq)
     case "${TEST_INSTALLED_PACKAGE:-omarchy}" in
-      omarchy)
-        [[ $2 == "omarchy" ]]; exit $?
-        ;;
-      omarchy-dev)
-        [[ $2 == "omarchy-dev" ]]; exit $?
-        ;;
       both)
         [[ $2 == "omarchy" || $2 == "omarchy-dev" ]]; exit $?
         ;;
       none)
         exit 1
+        ;;
+      *)
+        [[ $2 == "${TEST_INSTALLED_PACKAGE:-omarchy}" ]]; exit $?
         ;;
     esac
     ;;
@@ -93,7 +90,7 @@ chmod +x "$stub_bin/git"
 run_checker() {
   OMARCHY_PATH="${TEST_OMARCHY_PATH:-/usr/share/omarchy}" \
     TEST_GIT_LOG="$git_log" \
-    PATH="$stub_bin:$PATH" \
+    PATH="$stub_bin:$ROOT/bin:$PATH" \
     "$ROOT/bin/omarchy-update-available"
 }
 
@@ -137,6 +134,16 @@ grep -q '^omarchy-dev ' "$stdout" || fail "update checker prints omarchy-dev upd
 ! grep -q '^omarchy-settings-dev ' "$stdout" || fail "update checker ignores omarchy-settings-dev updates"
 ! grep -q '^omarchy ' "$stdout" || fail "update checker ignores omarchy when omarchy-dev is installed"
 pass "update checker detects installed omarchy-dev package updates"
+
+if capture_checker "$stdout" "$stderr" TEST_CHECKUPDATES=updates TEST_INSTALLED_PACKAGE=omarchy-server; then
+  status=0
+else
+  status=$?
+fi
+[[ $status -eq 0 ]] || fail "update checker exits successfully when omarchy-server update is available"
+grep -q '^omarchy-server ' "$stdout" || fail "update checker prints omarchy-server updates"
+! grep -q '^omarchy ' "$stdout" || fail "update checker ignores omarchy when omarchy-server is installed"
+pass "update checker detects installed omarchy-server package updates"
 
 if capture_checker "$stdout" "$stderr" TEST_CHECKUPDATES=updates TEST_INSTALLED_PACKAGE=both; then
   status=0

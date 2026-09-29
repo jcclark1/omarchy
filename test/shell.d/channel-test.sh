@@ -99,15 +99,18 @@ write_stub omarchy-version-channel '#!/bin/bash
 printf "%s\n" "${OMARCHY_TEST_VERSION_CHANNEL:-unknown}"
 '
 
+# OMARCHY_TEST_PACKAGES is the comma-separated installed set; -Q succeeds only
+# when every named package is in it.
 write_stub pacman '#!/bin/bash
 [[ $1 == "-Q" ]] || exit 1
 shift
-case "${OMARCHY_TEST_PACKAGES:-}" in
-  stable) [[ $* == "omarchy omarchy-settings" ]] ;;
-  dev) [[ $* == "omarchy-dev omarchy-settings-dev" ]] ;;
-  *) exit 1 ;;
-esac
+for package in "$@"; do
+  [[ ",${OMARCHY_TEST_PACKAGES:-}," == *",$package,"* ]] || exit 1
+done
 '
+
+# The real runtime lookup, run against the pacman stub above.
+cp "$ROOT/bin/omarchy-pkg-runtime" "$stub_bin/omarchy-pkg-runtime"
 
 run_channel() {
   : >"$log_file"
@@ -139,6 +142,12 @@ pass "stable does not require reboot when already package-backed"
 run_channel rc
 assert_log_line $'refresh\trc' "rc refreshes the rc pacman channel"
 assert_log_line $'update-pacman\t-S\t--needed\t--noconfirm\t--ask\t4\tomarchy\tomarchy-settings' "rc installs rc Omarchy packages"
+
+# A headless server stays on the server split of the runtime across switches.
+OMARCHY_TEST_PACKAGES=omarchy-server,omarchy-settings run_channel stable
+assert_log_line $'update-pacman\t-S\t--needed\t--noconfirm\t--ask\t4\tomarchy-server\tomarchy-settings' "stable on a server installs the server runtime"
+OMARCHY_TEST_PACKAGES=omarchy-server,omarchy-settings run_channel edge
+assert_log_line $'update-pacman\t-S\t--needed\t--noconfirm\t--ask\t4\tomarchy-server-dev\tomarchy-settings-dev' "edge on a server installs the server-dev runtime"
 assert_log_line $'unlink\t--no-reboot' "rc restores the package-backed Omarchy path without an early reboot prompt"
 assert_log_line $'update\t-y\tOMARCHY_PATH='"$package_root" "rc runs the normal update pipeline from the package-backed path"
 
@@ -198,14 +207,22 @@ current_channel() {
     "$ROOT/bin/omarchy-channel-current"
 }
 
-[[ $(current_channel stable stable /usr/share/omarchy) == "stable" ]] || fail "current channel detects stable"
+[[ $(current_channel stable omarchy,omarchy-settings /usr/share/omarchy) == "stable" ]] || fail "current channel detects stable"
 pass "current channel detects stable"
 
-[[ $(current_channel rc stable /usr/share/omarchy) == "rc" ]] || fail "current channel detects rc"
+[[ $(current_channel rc omarchy,omarchy-settings /usr/share/omarchy) == "rc" ]] || fail "current channel detects rc"
 pass "current channel detects rc"
 
-[[ $(current_channel edge dev /usr/share/omarchy) == "edge" ]] || fail "current channel detects package-backed edge"
+[[ $(current_channel edge omarchy-dev,omarchy-settings-dev /usr/share/omarchy) == "edge" ]] || fail "current channel detects package-backed edge"
 pass "current channel detects package-backed edge"
 
-[[ $(current_channel edge dev "$test_tmp/dev-checkout") == "dev" ]] || fail "current channel detects dev from OMARCHY_PATH"
+[[ $(current_channel stable omarchy-server,omarchy-settings /usr/share/omarchy) == "stable" ]] ||
+  fail "current channel detects stable on the server runtime"
+pass "current channel detects stable on the server runtime"
+
+[[ $(current_channel edge omarchy-server-dev,omarchy-settings-dev /usr/share/omarchy) == "edge" ]] ||
+  fail "current channel detects edge on the server runtime"
+pass "current channel detects edge on the server runtime"
+
+[[ $(current_channel edge omarchy-dev,omarchy-settings-dev "$test_tmp/dev-checkout") == "dev" ]] || fail "current channel detects dev from OMARCHY_PATH"
 pass "current channel honors a dev link outside ~/omarchy"

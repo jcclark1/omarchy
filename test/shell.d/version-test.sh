@@ -32,7 +32,7 @@ chmod +x "$stub_bin/pacman"
 version() {
   OMARCHY_TEST_PACKAGES="$1" \
     OMARCHY_PATH="${2:-/usr/share/omarchy}" \
-    PATH="$stub_bin:$PATH" \
+    PATH="$stub_bin:$ROOT/bin:$PATH" \
     "$ROOT/bin/omarchy-version"
 }
 
@@ -41,6 +41,12 @@ pass "version reports the stable package"
 
 [[ $(version omarchy-dev) == "4.0.0-1" ]] || fail "version reports the edge package"
 pass "version reports the edge package"
+
+[[ $(version omarchy-server) == "4.0.0-1" ]] || fail "version reports the server package"
+pass "version reports the server package"
+
+[[ $(version omarchy-server-dev) == "4.0.0-1" ]] || fail "version reports the server edge package"
+pass "version reports the server edge package"
 
 # A checkout reports its hash instead, so packages are irrelevant there.
 [[ $(version "" "$test_tmp/checkout") == "dev" ]] || fail "version reports a dev checkout"
@@ -55,7 +61,7 @@ pass "version fails when no Omarchy package is installed"
 # the update under set -e.
 snapshot_desc=$(
   set -e
-  PATH="$stub_bin:$PATH" OMARCHY_TEST_PACKAGES="" OMARCHY_PATH=/usr/share/omarchy \
+  PATH="$stub_bin:$ROOT/bin:$PATH" OMARCHY_TEST_PACKAGES="" OMARCHY_PATH=/usr/share/omarchy \
     bash -c 'DESC="$(omarchy-version 2>/dev/null || echo unknown)"; echo "$DESC"' 2>/dev/null
 ) || fail "snapshot survives an unknown version"
 

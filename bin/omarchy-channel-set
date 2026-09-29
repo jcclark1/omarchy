@@ -115,6 +115,12 @@ case "$channel" in
     ;;
 esac
 
+# A headless server stays on the server split of the runtime (omarchy-server /
+# omarchy-server-dev), which drops the desktop dependencies.
+if [[ $(omarchy-pkg-runtime || true) == omarchy-server* ]]; then
+  packages[0]=${packages[0]/omarchy/omarchy-server}
+fi
+
 # A failure past this point leaves the channel switch half-applied, so say how
 # to pick it back up rather than dying silently under set -e.
 trap 'echo -e "\nThe channel switch did not complete. Review the error above, then rerun: omarchy-channel-set '"$channel"'" >&2' ERR

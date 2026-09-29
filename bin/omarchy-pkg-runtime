@@ -1,0 +1,17 @@
+#!/bin/bash
+
+# omarchy:summary=Print the installed Omarchy runtime package name.
+# omarchy:hidden=true
+
+# The edge channel installs omarchy-dev instead of omarchy, and the headless
+# server profile installs omarchy-server / omarchy-server-dev: the same payload
+# without the desktop dependencies. pacman -Q does not follow provides, so
+# look each one up by name.
+for package in omarchy-dev omarchy-server-dev omarchy omarchy-server; do
+  if pacman -Q "$package" &>/dev/null; then
+    echo "$package"
+    exit 0
+  fi
+done
+
+exit 1
