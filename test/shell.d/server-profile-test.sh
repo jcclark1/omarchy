@@ -102,3 +102,27 @@ for unwanted in hyprland sddm chromium linux-omarchy nvidia-dkms; do
   if grep -qxF "$unwanted" <<<"$pkgs"; then fail "server manifest excludes $unwanted"; fi
 done
 pass "server manifest keeps the CLI/server core and drops the desktop stack"
+
+# --- firewall branching ---
+
+firewall() {
+  # Record ufw calls; stub the ufw-docker installer (readonly, so the script's
+  # own definition cannot replace it) and the live ufw.conf edit.
+  OMARCHY_PROFILE="$1" bash -c '
+    ufw(){ printf "ufw %s\n" "$*"; }
+    systemctl(){ :; }
+    sed(){ :; }
+    install_ufw_docker_rules(){ :; }
+    readonly -f install_ufw_docker_rules
+    source "'"$INSTALL"'/config/firewall.sh"' 2>/dev/null
+}
+
+fw=$(firewall server)
+grep -qx "ufw allow ssh" <<<"$fw" || fail "server firewall allows ssh"
+if grep -q "53317" <<<"$fw"; then fail "server firewall does not open LocalSend"; fi
+pass "server firewall allows ssh and skips LocalSend"
+
+fw=$(firewall desktop)
+grep -q "ufw allow 53317/tcp" <<<"$fw" || fail "desktop firewall still opens LocalSend"
+if grep -qx "ufw allow ssh" <<<"$fw"; then fail "desktop firewall does not open ssh"; fi
+pass "desktop firewall opens LocalSend and not ssh"

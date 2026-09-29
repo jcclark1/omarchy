@@ -2,9 +2,15 @@
 ufw default deny incoming
 ufw default allow outgoing
 
-# Allow ports for LocalSend.
-ufw allow 53317/udp
-ufw allow 53317/tcp
+if [[ $OMARCHY_PROFILE == "server" ]]; then
+  # SSH is a headless server's primary access path (sshd is enabled in
+  # enable-services.sh), so it must get through the default-deny policy.
+  ufw allow ssh
+else
+  # Allow ports for LocalSend.
+  ufw allow 53317/udp
+  ufw allow 53317/tcp
+fi
 
 # Allow Docker containers to use DNS on host.
 ufw allow in proto udp from 172.16.0.0/12 to 172.17.0.1 port 53 comment 'allow-docker-dns'
