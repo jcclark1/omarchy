@@ -1,198 +1,121 @@
-# Omarchy Server — a headless amd64 profile
+# Omarchy Server — headless amd64 profile
 
-## Status (2026-09-29)
+A `--headless` install profile for Omarchy: the full CLI/dev environment and
+"feel" (shell, aliases, starship, tmux, neovim, mise tool suite) with no desktop
+session, so servers and the desktop share one config. Built as a profile of
+Omarchy's existing archiso builder, not a separate distro or a bootstrap script.
 
-Implemented and unit-tested on branch `server-profile` in both forks
-(`jcclark1/omarchy`, `jcclark1/omarchy-iso`):
+## Where the work lives
 
-- **omarchy runtime**: `install/omarchy-server.packages`; `OMARCHY_PROFILE`
-  resolver (`install/helpers/profile.sh`) wired into `omarchy-apply-system`;
-  `install/login/headless.sh` (multi-user + console autologin) branched in
-  `login/all.sh` and `config/enable-services.sh` (sshd on, sddm/cups/avahi off);
-  `omarchy-provision-user` + `user/all.sh` keep git + mise (delayed packages)
-  and skip desktop leaves. 12 shell tests.
-- **omarchy-iso**: `omarchy-iso-make --headless` threads `OMARCHY_PROFILE`;
-  `build-iso.sh` ships the server manifest in the mirror + bakes the profile
-  marker + headless dashboard count; the orchestrator resolves the profile,
-  defaults the kernel to stock `linux`, pacstraps the server manifest, and
-  writes `/etc/omarchy/profile`. 11 Python tests (80 total green).
+Two forks, cloned as siblings under `~/Projects`, both on branch `server-profile`
+(`origin` = `jcclark1/*`, `upstream` = `omacom/*`):
 
-**Remaining (needs a build host):** a real `omarchy-iso-make --headless
---local-source ../omarchy` build (Docker), then the QEMU install +
-`test/integration.d/` scenario. Not runnable in the dev sandbox.
+- `~/Projects/omarchy` — the runtime (`/usr/share/omarchy` payload)
+- `~/Projects/omarchy-iso` — the archiso builder + Python install orchestrator
+- `~/Projects/omarchy-pkgs` — custom package PKGBUILDs (needed by `--local-source`)
 
-## Context
+Resume by reading this file, then `git -C ~/Projects/omarchy log --oneline` and
+the same in `omarchy-iso`. Base is `4.0.0.alpha` on the `quattro` branch.
 
-Omarchy's value splits in two: a **desktop layer** (Hyprland, Waybar/quickshell,
-SDDM, GUI apps) and a **CLI/dev layer** (bash env + aliases, starship, tmux,
-neovim, git/lazygit, docker, and the mise-backed AI/dev tool suite). We want the
-CLI layer on servers so jumping between desktop and server feels identical, with
-no desktop baggage.
+## How the profile works
 
-**Decision — ISO, not bootstrap, and not from-scratch.** Omarchy 4.0 already ships
-an archiso-based builder (`omacom/omarchy-iso`) that does exactly "base Arch →
-continue into Omarchy setup": `bin/omarchy-iso-make` pacstraps
-`omarchy-base.packages`, bundles an **offline mirror** in the ISO, then runs
-`omarchy-provision-user --first-install` in the target chroot. It already has
-**unattended install** (a `cidata`-labeled drive) and **Tailscale auto-join on
-first boot** — both server features. So we add a **headless profile** to the
-existing builder rather than hand-rolling archinstall or a bootstrap script.
-(Bootstrap would only be needed for ARM/Pi/VPS, which the user scoped out.)
+One marker file, `/etc/omarchy/profile`, is the single source of truth. The ISO
+bakes it (for a `--headless` build) and the installer writes it into the target;
+every runtime code path reads it via `install/helpers/profile.sh`, which resolves
+and exports `OMARCHY_PROFILE` (`server` or `desktop`, default `desktop`).
 
-**Confirmed scope:** amd64 bare-metal/VM only · stock `linux` + btrfs/snapper ·
-both unattended + interactive install · full mise "delayed packages" suite as-is.
+Install-time flow (server):
+1. `omarchy-iso-make --headless` → `OMARCHY_PROFILE=server` into the build container.
+2. `builder/build-iso.sh` builds the offline mirror from `omarchy-server.packages`
+   **alone** (never base+other, which carry nvidia/T2/broadcom hardware packages a
+   server neither installs nor wants), ships that manifest into the airootfs, and
+   bakes `/usr/share/omarchy-iso/profile` = `server`.
+3. The Python orchestrator (`orchestrator/`) resolves the profile, defaults the
+   kernel to stock `linux` (and coerces a config's `linux-omarchy` → `linux`,
+   since the server mirror carries only stock), pacstraps `omarchy-server.packages`,
+   writes `/etc/omarchy/profile` into the target, then runs
+   `omarchy-apply-system --first-install` in the chroot.
+4. `omarchy-apply-system` sources the profile and takes the server branch:
+   `login/headless.sh` (multi-user.target + tty1 console autologin), sshd enabled
+   and sddm/cups/avahi/power-profiles skipped, user provisioning that keeps
+   `git` + `mise.sh` and skips the desktop leaves.
+5. `configure_login` (orchestrator) is a no-op on server, so it does not clobber
+   the console autologin or try to enable sddm.
 
-Two repos are involved, developed as sibling checkouts (the builder supports
-`omarchy-iso-make --local-source ../omarchy`):
-- **`omarchy`** (the `/usr/share/omarchy` runtime): package manifests, `install/`
-  setup scripts, `default/bash` shell, themes, `bin/omarchy-*`.
-- **`omarchy-iso`** (the builder): archiso profile + the installer orchestrator
-  ("phases"), `bin/omarchy-iso-make`, `test/`.
+## Delayed packages / mise
 
-Both should be forked; the profile is structured cleanly enough to potentially
-upstream.
+`install/user/mise.sh` writes mise wrappers (claude, codex, gemini, gh, copilot,
+opencode, crush, playwright, pi, grok, …) that install on first use — the
+"delayed packages." Kept in full on the server profile; `mise-bin` is in the
+server manifest.
 
-## What "delayed packages + mise" is (keep it intact)
+## File map (server-profile changes)
 
-`install/user/mise.sh` lays down mise wrappers under `~/.local/bin` (via
-`omarchy-mise-install`) for `codex, claude, crush, gemini, gh, copilot, opencode,
-playwright, pi, omp, grok, cursor-agent, ghui, hunk`, plus `omarchy-install-hermes-cli
-|| true` and the Meta `muse` launcher. Each wrapper `mise use -g` installs the tool
-**on first invocation** — that lazy install is the "delayed package" system. It is
-fully headless-compatible and stays as-is (full suite). `mise-bin` is already in the
-base manifest, so the runtime is present.
+`omarchy`:
+- `install/omarchy-server.packages` — the server manifest (source of truth)
+- `install/helpers/profile.sh` — resolves+exports `OMARCHY_PROFILE`
+- `install/login/headless.sh` — multi-user.target + tty1 autologin
+- `install/login/all.sh`, `install/config/enable-services.sh` — profile branches
+- `install/user/all.sh` — keeps git+mise, guards desktop leaves
+- `bin/omarchy-apply-system` — sources the profile helper
+- `bin/omarchy-provision-user` — guards graphical finalization
+- `test/shell.d/server-profile-test.sh` — 12 tests
 
-## Implementation
+`omarchy-iso`:
+- `bin/omarchy-iso-make` — `--headless` flag → `OMARCHY_PROFILE`
+- `builder/build-iso.sh` — server-only mirror, ships manifest, bakes marker,
+  headless dashboard count
+- `orchestrator/context.py` — profile resolution, stock-kernel default + coercion
+- `orchestrator/phases_impl.py` — server manifest selection, target marker,
+  `configure_login` server no-op
+- `test/unit/test_server_profile.py` — profile/kernel/login/manifest tests
 
-### 1. Server package manifest (`omarchy` repo)
+## Build
 
-Add `install/omarchy-server.packages`, derived from `omarchy-base.packages` (150
-pkgs) by the rule **keep CLI/dev + server infra, drop everything graphical/audio/
-laptop**. The builder's offline-mirror logic already reads a packages file, so this
-becomes the headless mirror source.
+`gh` must be logged in. Docker is required; the user is not in the `docker` group,
+so `omarchy-iso-make` escalates the single `docker run` via sudo (needs a real
+terminal for the password — the Claude `!` runner has no TTY, so run it in an
+actual terminal):
 
-- **Must add (not in base):** `openssh` (sshd) — the single biggest gap; also
-  `qemu-guest-agent` (VM integration). Keep `sudo`/`base`/`base-devel` from
-  `omarchy-other.packages`.
-- **Kernel/boot (from `omarchy-other.packages`):** swap `linux-omarchy` →
-  `linux` + `linux-headers`; **keep** `btrfs-progs`, `snapper`, `limine`,
-  `limine-mkinitcpio-hook`, `limine-snapper-sync` (snapper rollback on servers is
-  a win and reuses the installer's existing boot/rollback phase). **Drop** all
-  `nvidia*`, `broadcom-wl`, `tuxedo`, `apple/t2`, `intel-ipu7`, `asusctl`,
-  `macbook12`, `sof-firmware`, `linux-firmware-marvell`, vulkan/media desktop
-  drivers.
-- **Keep (representative):** `bash-completion, bat, btop, clang, docker,
-  docker-buildx, docker-compose, dua-cli, eza, expac, fastfetch, fd, fzf, git,
-  gum, jq, lazydocker, lazygit, less, man-db, mise-bin, networkmanager,
-  nss-mdns, avahi, nvim, omarchy-nvim, pacman-contrib, plocate, ripgrep,
-  starship, tldr, tmux, tree-sitter-cli, unzip, usage, ufw, ufw-docker, whois,
-  yay, zoxide, dosfstools, exfatprogs, inotify-tools, inxi` + language runtimes
-  kept for dev-server parity (`ruby, lua51, luarocks, dotnet-runtime, llvm,
-  mariadb-libs, postgresql-libs, python-gobject, python-poetry-core`).
-- **Drop (representative):** the session stack `hyprland*, uwsm, sddm,
-  quickshell, xdg-desktop-portal-hyprland, xdg-desktop-portal-gtk,
-  xdg-terminal-exec, plymouth`; GUI apps `chromium, foot, obsidian, obs-studio,
-  libreoffice-fresh, kdenlive, pinta, xournalpp, moonlight-qt, mpv*, nautilus*,
-  gnome-disk-utility, evince, imv, localsend, aether, cliamp, herdr, omacut,
-  omacalc, omawrite`; audio `wireplumber, pamixer, alsa-utils`; input/i18n
-  `fcitx5*`; screenshot/clipboard `grim, slurp, hyprpicker, wl-clipboard, wtype,
-  gpu-screen-recorder`; theming/fonts `yaru-icon-theme, gnome-themes-extra,
-  ttf*/woff2*/noto-*` (keep none needed headless), printing `cups*,
-  system-config-printer`, laptop `brightnessctl, ddcutil, power-profiles-daemon,
-  bluez*, bolt, udiskie, udisksie`.
+```
+cd ~/Projects/omarchy-iso
+./bin/omarchy-iso-make --headless --no-boot-offer --local-source ../omarchy ../omarchy-pkgs
+```
 
-### 2. Headless login/session (`omarchy` repo)
+Output: `~/Projects/omarchy-iso/release/omarchy-*-local.iso`. The local build
+compiles only three small config packages (omarchy, omarchy-settings,
+omarchy-nvim); the rest, including stock `linux`, download into the mirror. Add
+`--no-cache` if a half-finished run left stale cache.
 
-- `install/login/all.sh` currently unconditionally sources `login/sddm.sh`. Make
-  it profile-aware: on the server profile source a new **`install/login/headless.sh`**
-  that: enables `sshd`, sets `systemctl set-default multi-user.target`, and
-  configures **console autologin** (a `getty@tty1` drop-in) into a login shell so
-  the physical console lands in the Omarchy bash env. No display manager, no
-  Hyprland.
-- The bash "feel" already seeds via **`/etc/skel`** (confirmed in
-  `omarchy-provision-user` help text) plus `$OMARCHY_PATH/default/bash/rc`
-  sourced from `~/.bashrc` — this is desktop-independent, so SSH sessions inherit
-  aliases/functions/starship for free. Also seed `/root` for root SSH.
+## Test
 
-### 3. Profile-aware user provisioning (`omarchy` repo)
+Unit tests (no Docker/VM; run from each repo):
+- `omarchy`: `./test/shell` (or just `bash test/shell.d/server-profile-test.sh`)
+- `omarchy-iso`: `python3 -m unittest discover -t . -s test/unit` (84 pass;
+  stdlib unittest, no pytest). Pre-existing unrelated failure in `omarchy`'s
+  `test/cli`: "vscode generated theme references current theme file".
 
-Gate the desktop-only steps in `install/user/all.sh` behind the profile marker
-(e.g. `/etc/omarchy/profile` == `server`, or `OMARCHY_PROFILE`):
-- **Keep:** `git.sh`, `mise-work.sh`, **`mise.sh`** (the delayed suite).
-- **Guard/skip:** `chromium.sh`, `xcompose.sh`, `default-keyring.sh`, all
-  `hardware/**` audio fixes, and reduce `theme.sh` to terminal-color output only
-  (skip GTK/Hypr theming).
-- `install/user/first-run/`: keep `setup-agent.hook`; skip `welcome.sh`,
-  `wifi.sh`, `gnome-theme.sh`, `gtk-primary-paste.sh`, `audio-tuning.sh`,
-  `install-voxtype.hook`, `setup-fingerprint.hook`, `enable-user-units.sh`
-  (or trim to non-graphical units).
-- `bin/omarchy-provision-user` / `bin/omarchy-provision-first-run`: read the
-  profile marker and pass it into `install/user/all.sh`.
+Verify a built ISO (before booting): loopback-mount it and check
+`usr/share/omarchy-iso/profile` = `server`, that `omarchy-server.packages` is
+present, and that the offline mirror under `var/cache/omarchy/mirror/offline`
+contains `openssh` and a `linux-*` package but no `hyprland`/`sddm`.
 
-### 4. Builder: `--headless` flag (`omarchy-iso` repo)
+QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
+- Build a `cidata` drive with a hostname + an `authorized_keys` (default SSH key
+  `~/.ssh/id_ed25519.pub`) so the install runs unattended and headless, per the
+  cidata section of `omarchy-iso/README.md` (it already supports
+  `--authorized-keys-file` and `--tailscale-authkey-file`).
+- Boot with `./bin/omarchy-iso-boot release/<iso>` (or `omarchy-vm`), let it
+  install and reboot, then SSH in and assert: `systemctl is-active sshd`,
+  `systemctl get-default` = `multi-user.target`, `pacman -Q hyprland` fails,
+  `pacman -Q git docker openssh linux` succeeds, `mise --version` works, and a
+  wrapper (`gh --version`) lazily resolves.
 
-Add `--headless` (alias `--server`) to `bin/omarchy-iso-make` that:
-- Sources `omarchy-server.packages` for pacstrap **and** the bundled offline
-  mirror (instead of base+other).
-- Writes the profile marker into the target (`/etc/omarchy/profile=server`) so
-  the chroot provisioning takes the headless paths.
-- In the installer **orchestrator phases**: the kernel/bootloader phase installs
-  stock `linux` and lets `limine-mkinitcpio-hook` generate entries for
-  `vmlinuz-linux` (verify the phase doesn't hardcode `linux-omarchy` in
-  pacstrap or a `limine.conf` template — this is the main porting risk); the
-  session phase runs `login/headless.sh` instead of the SDDM/Hyprland setup.
-- Leave the **cidata** autoinstall + **Tailscale** join paths intact (they're
-  server features). Extend the cidata schema if not already present to preset:
-  `hostname`, `username`, `authorized_keys` (SSH pubkeys → the biggest fleet
-  need), `timezone`. Interactive wizard remains the default when no cidata drive.
+## Remaining
 
-### 5. Tests (`omarchy-iso` repo)
-
-- Add a **unit** case under `test/unit/` (run by `./test/all`, VM-free) asserting
-  the headless profile selects `multi-user.target` + `sshd`, includes `git/docker/
-  mise-bin/openssh`, and excludes `hyprland/sddm/uwsm`.
-- Add a **`test/integration.d/`** scenario (QEMU, guest SSH — harness already
-  exists) named e.g. `headless-server.sh`.
-
-## Critical files
-
-`omarchy` repo:
-- `install/omarchy-server.packages` *(new)* — derived from `install/omarchy-base.packages`
-- `install/login/all.sh` *(profile switch)*, `install/login/headless.sh` *(new)*
-- `install/user/all.sh` *(guard desktop steps)*; keep `install/user/mise.sh`,
-  `install/user/mise-work.sh`, `install/user/git.sh`
-- `install/user/first-run/*` *(guard)*
-- `bin/omarchy-provision-user`, `bin/omarchy-provision-first-run` *(profile-aware)*
-
-`omarchy-iso` repo:
-- `bin/omarchy-iso-make` *(add `--headless`)*
-- archiso profile (`profiledef.sh`, `packages.x86_64`, `airootfs/`) + the
-  installer orchestrator phases *(kernel/bootloader + session branch)*
-- `test/unit/*` and `test/integration.d/headless-server.sh` *(new coverage)*
-
-## Verification (end to end)
-
-1. **Setup (do this first, before any code):** create **public forks** of both
-   upstream repos and clone them as siblings, keeping an `upstream` remote so the
-   fast-moving `4.0.alpha` can be pulled in:
-   ```
-   gh repo fork omacom/omarchy      --clone --remote   # sets origin=fork, upstream=omacom
-   gh repo fork omacom/omarchy-iso  --clone --remote
-   ```
-   Place them as siblings (`omarchy/` and `omarchy-iso/`) so `--local-source
-   ../omarchy` resolves. Do all work on a `server-profile` branch in each, kept as
-   a clean diff so it can be offered upstream later.
-2. **Build:** `cd omarchy-iso && ./bin/omarchy-iso-make --headless --local-source ../omarchy`
-   → `release/omarchy-server*.iso`.
-3. **Fast tests:** `./test/all` (unit: profile selection, package in/exclusion).
-4. **Boot test:** `./bin/omarchy-iso-boot release/omarchy-server.iso` (QEMU).
-5. **Unattended:** build a `cidata` drive (`genisoimage -volid cidata`) with
-   hostname + an SSH `authorized_keys` (+ optional `tailscale_authkey`), attach
-   alongside the ISO, confirm hands-off install and auto-reboot.
-6. **Integration:** `./test/integration release/omarchy-server.iso headless-server`
-   asserting via guest SSH: `systemctl is-active sshd`,
-   `systemctl get-default` == `multi-user.target`, `pacman -Q hyprland` **fails**,
-   `pacman -Q git docker openssh linux` **succeeds**, `mise --version` works,
-   and a wrapper (`gh --version`) lazily resolves (delayed-package path).
-7. **Feel check:** SSH in, confirm Omarchy aliases/functions/starship are live
-   from `/etc/skel`, and `snapper list` shows the post-install snapshot.
+- A green end-to-end QEMU install run + a `test/integration.d/headless-server.sh`
+  scenario (the repo's integration harness boots a real install and drives it
+  over guest SSH).
+- Optionally open PRs to `omacom/omarchy` and `omacom/omarchy-iso`.
+- Not in scope (deliberately): ARM/Raspberry-Pi, cloud-VPS images, a bootstrap
+  script for existing machines.
