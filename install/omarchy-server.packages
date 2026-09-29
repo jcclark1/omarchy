@@ -1,0 +1,94 @@
+# Omarchy server/headless core package list, pacstrapped by the ISO --headless profile.
+# The ISO builder also reads this file when constructing the offline mirror.
+#
+# Derived from omarchy-base.packages by keeping the CLI/dev + server-infra layer
+# and dropping everything graphical, audio, input-method, printing, and laptop-
+# hardware related. Kernel/boot entries that live in omarchy-other.packages are
+# folded in here (stock `linux`, btrfs + snapper + limine), since the headless
+# profile builds its mirror from this single file.
+#
+# Same format as omarchy-base.packages: one package per line, # comments and
+# blank lines ignored (see omarchy-reinstall-pkgs / omarchy-upgrade-to-quattro).
+
+# --- Kernel, boot, storage (stock kernel; btrfs rollbacks kept) ---
+base
+base-devel
+linux
+linux-headers
+linux-firmware
+btrfs-progs
+dosfstools
+exfatprogs
+snapper
+limine
+limine-mkinitcpio-hook
+limine-snapper-sync
+kernel-modules-hook
+zram-generator
+
+# --- Networking / remote access (server essentials) ---
+openssh
+networkmanager
+ufw
+ufw-docker
+inetutils
+socat
+whois
+qemu-guest-agent
+
+# --- Shell & the Omarchy "feel" (portable, no display needed) ---
+bash-completion
+starship
+zoxide
+fzf
+eza
+bat
+fd
+ripgrep
+btop
+fastfetch
+gum
+less
+man-db
+tldr
+plocate
+unzip
+tzupdate
+expac
+pacman-contrib
+usage
+mise-bin
+
+# --- Editor / dev tooling ---
+nvim
+omarchy-nvim
+tree-sitter-cli
+lua51
+luarocks
+git
+lazygit
+clang
+llvm
+tmux
+inotify-tools
+inxi
+jq
+dua-cli
+libsecret
+
+# --- Containers ---
+docker
+docker-buildx
+docker-compose
+lazydocker
+
+# --- Language runtimes / DB client libs (dev-server parity) ---
+ruby
+dotnet-runtime
+python-poetry-core
+mariadb-libs
+postgresql-libs
+
+# --- AUR helper (needed for OPR/AUR packages the mise suite may pull) ---
+yay
+fakeroot
