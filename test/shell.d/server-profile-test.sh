@@ -167,3 +167,90 @@ fw=$(firewall desktop)
 grep -q "ufw allow 53317/tcp" <<<"$fw" || fail "desktop firewall still opens LocalSend"
 if grep -qx "ufw allow ssh" <<<"$fw"; then fail "desktop firewall does not open ssh"; fi
 pass "desktop firewall opens LocalSend and not ssh"
+
+# --- system config leaves ---
+
+config_steps() {
+  OMARCHY_PROFILE="$1" bash -c \
+    'run_logged(){ printf "%s\n" "$1"; }; OMARCHY_INSTALL="'"$INSTALL"'"; source "$OMARCHY_INSTALL/config/all.sh"'
+}
+
+steps=$(config_steps server)
+grep -q "config/increase-lockout-limit.sh" <<<"$steps" || fail "server keeps the faillock limit"
+for desktop_leaf in theme-system.sh browser-policy.sh lockscreen-pam.sh; do
+  if grep -q "config/$desktop_leaf" <<<"$steps"; then fail "server skips desktop config leaf $desktop_leaf"; fi
+done
+pass "server config keeps faillock and skips desktop leaves"
+
+steps=$(config_steps desktop)
+for desktop_leaf in theme-system.sh browser-policy.sh lockscreen-pam.sh; do
+  grep -q "config/$desktop_leaf" <<<"$steps" || fail "desktop still runs $desktop_leaf"
+done
+pass "desktop config runs the desktop leaves"
+
+# A server has no sddm, so /etc/pam.d/sddm-autologin must not be touched.
+lockout_targets() {
+  OMARCHY_PROFILE="$1" bash -c \
+    'sed(){ printf "%s\n" "${@: -1}"; }; source "'"$INSTALL"'/config/increase-lockout-limit.sh"'
+}
+if grep -q "sddm-autologin" <<<"$(lockout_targets server)"; then
+  fail "server faillock leaves sddm-autologin alone"
+fi
+grep -q "system-auth" <<<"$(lockout_targets server)" || fail "server faillock still edits system-auth"
+grep -q "sddm-autologin" <<<"$(lockout_targets desktop)" || fail "desktop faillock still edits sddm-autologin"
+pass "faillock edits sddm-autologin on desktop only"
+
+# --- hardware leaves ---
+
+hardware_steps() {
+  OMARCHY_PROFILE="$1" bash -c \
+    'run_logged(){ printf "%s\n" "$1"; }; OMARCHY_INSTALL="'"$INSTALL"'"; source "$OMARCHY_INSTALL/hardware/all.sh"'
+}
+
+steps=$(hardware_steps server)
+grep -q "hardware/nvidia.sh" <<<"$steps" || fail "server still sets up NVIDIA"
+for desktop_leaf in bluetooth.sh vulkan.sh intel/video-acceleration.sh speaker-tuning.sh; do
+  if grep -q "hardware/$desktop_leaf" <<<"$steps"; then fail "server skips hardware leaf $desktop_leaf"; fi
+done
+pass "server hardware skips bluetooth, graphics and audio leaves"
+
+steps=$(hardware_steps desktop)
+for desktop_leaf in bluetooth.sh vulkan.sh intel/video-acceleration.sh speaker-tuning.sh; do
+  grep -q "hardware/$desktop_leaf" <<<"$steps" || fail "desktop still runs $desktop_leaf"
+done
+pass "desktop hardware runs the full leaf set"
+
+grep -Fq 'source "$OMARCHY_INSTALL/helpers/profile.sh"' "$ROOT/bin/omarchy-apply-hardware" ||
+  fail "omarchy-apply-hardware resolves the profile when run on its own"
+pass "omarchy-apply-hardware resolves the profile"
+
+# Print the packages nvidia.sh would add for a profile and GSP support.
+nvidia_packages() {
+  local etc_root
+  etc_root=$(mktemp -d)
+  sed "s#/etc/#$etc_root/etc/#g" "$INSTALL/hardware/nvidia.sh" |
+    OMARCHY_PROFILE="$1" GSP="$2" bash -c '
+      lspci(){ echo "01:00.0 VGA compatible controller: NVIDIA Corporation TU102"; }
+      omarchy-hw-nvidia-gsp(){ [[ $GSP == 1 ]]; }
+      omarchy-hw-nvidia-without-gsp(){ [[ $GSP == 0 ]]; }
+      omarchy-pkg-add(){ printf "%s\n" "$@"; }
+      source /dev/stdin'
+  rm -rf "$etc_root"
+}
+
+server_other=$(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$INSTALL/omarchy-server-other.packages")
+for gsp in 1 0; do
+  got=$(nvidia_packages server $gsp)
+  [[ -n $got ]] || fail "server nvidia installs a driver (gsp=$gsp)"
+  if grep -qE "^lib32-|^libva-" <<<"$got"; then fail "server nvidia skips lib32/libva (gsp=$gsp)" "got: $got"; fi
+  while read -r pkg; do
+    grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg (gsp=$gsp)"
+  done <<<"$got"
+done
+grep -qx "lib32-nvidia-utils" <<<"$(nvidia_packages desktop 1)" || fail "desktop nvidia keeps lib32"
+pass "server nvidia installs only compute packages, all in the server mirror"
+
+for pkg in thermald intel-lpmd; do
+  grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for laptop servers"
+done
+pass "server mirror carries the battery-gated Intel daemons"

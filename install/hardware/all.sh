@@ -7,11 +7,16 @@ run_logged "$OMARCHY_INSTALL/hardware/network.sh"
 run_logged "$OMARCHY_INSTALL/hardware/set-wireless-regdom.sh"
 run_logged "$OMARCHY_INSTALL/hardware/fix-fkeys.sh"
 run_logged "$OMARCHY_INSTALL/hardware/fix-synaptic-touchpad.sh"
-run_logged "$OMARCHY_INSTALL/hardware/bluetooth.sh"
+# The server profile installs no bluez, graphics stack, or audio stack, and
+# its offline mirror carries none of the packages these leaves would add.
+if [[ $OMARCHY_PROFILE != "server" ]]; then
+  run_logged "$OMARCHY_INSTALL/hardware/bluetooth.sh"
+fi
 run_logged "$OMARCHY_INSTALL/hardware/nvidia.sh"
-run_logged "$OMARCHY_INSTALL/hardware/vulkan.sh"
-
-run_logged "$OMARCHY_INSTALL/hardware/intel/video-acceleration.sh"
+if [[ $OMARCHY_PROFILE != "server" ]]; then
+  run_logged "$OMARCHY_INSTALL/hardware/vulkan.sh"
+  run_logged "$OMARCHY_INSTALL/hardware/intel/video-acceleration.sh"
+fi
 run_logged "$OMARCHY_INSTALL/hardware/intel/lpmd.sh"
 run_logged "$OMARCHY_INSTALL/hardware/intel/thermald.sh"
 run_logged "$OMARCHY_INSTALL/hardware/intel/ipu7-camera.sh"
@@ -42,5 +47,7 @@ run_logged "$OMARCHY_INSTALL/hardware/fix-bcm43xx.sh"
 run_logged "$OMARCHY_INSTALL/hardware/fix-surface-keyboard.sh"
 run_logged "$OMARCHY_INSTALL/hardware/fix-yt6801-ethernet-adapter.sh"
 run_logged "$OMARCHY_INSTALL/hardware/fix-tuxedo-backlight.sh"
-run_logged "$OMARCHY_INSTALL/hardware/speaker-tuning.sh"
+if [[ $OMARCHY_PROFILE != "server" ]]; then
+  run_logged "$OMARCHY_INSTALL/hardware/speaker-tuning.sh"
+fi
 run_logged "$OMARCHY_INSTALL/hardware/pacman.sh"
