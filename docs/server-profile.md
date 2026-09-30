@@ -36,8 +36,9 @@ Install-time flow (server):
    writes `/etc/omarchy/profile` into the target, then runs
    `omarchy-apply-system --first-install` in the chroot.
 4. `omarchy-apply-system` sources the profile and takes the server branch:
-   `login/headless.sh` (multi-user.target + tty1 console autologin), sshd enabled
-   and sddm/cups/avahi/power-profiles skipped, user provisioning that keeps
+   `login/headless.sh` (multi-user.target + tty1 console autologin),
+   `login/verbose-boot.sh` (no Plymouth splash, visible boot output), sshd and
+   avahi enabled and sddm/cups/power-profiles skipped, user provisioning that keeps
    `git` + `mise.sh` and skips the desktop leaves.
 5. `configure_login` (orchestrator) is a no-op on server, so it does not clobber
    the console autologin or try to enable sddm.
@@ -61,6 +62,12 @@ stack), `provides=omarchy`, `conflicts=omarchy`.
 - A non-`--local-source` headless ISO needs `omarchy-server` published in the
   package repo, which only happens once the omarchy-pkgs change lands upstream.
 
+## Package set
+
+`install/omarchy-server.packages` was audited on 2026-09-29. It keeps full dev parity with the desktop (ruby, dotnet-runtime, clang/llvm, DB client libs, lua/luarocks) so one config serves both. It adds server ops tools (rsync, wget, smartmontools, nvme-cli, lm_sensors, bind, mtr, tcpdump, iperf3, ethtool, lsof, strace), and it restores `herdr`, `tobi-try`, `qemu-user-static-binfmt` (so `docker buildx` can build for other CPU architectures) and `avahi` + `nss-mdns` (`<host>.local`; ufw's stock before.rules already allow mDNS). `libsecret` was dropped: nothing on a server provides a keyring service for it. CPU microcode and `tailscale` are not in the manifest. They reach the mirror through `omarchy-iso/builder/archinstall.packages`, and archinstall picks the microcode.
+
+Plymouth still gets installed because `omarchy-settings` depends on it, but `login/verbose-boot.sh` never lets it run. It writes `/etc/mkinitcpio.conf.d/omarchy_server_boot.conf`, which removes the `plymouth` hook, and `/etc/limine-entry-tool.d/omarchy-server-boot.conf`. limine drop-ins can only add kernel flags, not remove them, so the second file adds `plymouth.enable=0` and louder log levels after the `quiet splash loglevel=0 …` flags from `omarchy-defaults.conf`. The kernel and systemd use the last value given.
+
 ## Delayed packages / mise
 
 `install/user/mise.sh` writes mise wrappers (claude, codex, gemini, gh, copilot,
@@ -74,6 +81,7 @@ server manifest.
 - `install/omarchy-server.packages` — the server manifest (source of truth)
 - `install/helpers/profile.sh` — resolves+exports `OMARCHY_PROFILE`
 - `install/login/headless.sh` — multi-user.target + tty1 autologin (validated username)
+- `install/login/verbose-boot.sh` — drops the plymouth hook and quiet cmdline on server
 - `install/login/all.sh`, `install/config/enable-services.sh` — profile branches
 - `install/config/firewall.sh` — server opens SSH (not LocalSend) through ufw
 - `install/user/all.sh` — keeps git+mise, guards desktop leaves
@@ -81,7 +89,7 @@ server manifest.
 - `bin/omarchy-provision-user` — guards graphical finalization
 - `bin/omarchy-pkg-runtime` — names the installed runtime package; used by
   `omarchy-version`, `-debug`, `-update-available`, `-channel-current`, `-channel-set`
-- `test/shell.d/server-profile-test.sh` — 15 tests; server cases also in the
+- `test/shell.d/server-profile-test.sh` — 18 tests; server cases also in the
   channel, version and update-available tests
 
 `omarchy-iso`:
@@ -153,7 +161,9 @@ QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
 - Build the ISO (see Build; needs sudo in a real terminal) and get a green run
   of the integration scenario, which does the whole QEMU install + assertions:
   `cd ~/Projects/omarchy-iso && ./test/integration release/<iso> headless-server`
-  (`--reuse-base` on reruns). Not yet run — no ISO has been built.
+  (`--reuse-base` on reruns). Not yet run. An ISO was built on 2026-09-29
+  (`release/omarchy-2026.09.29-x86_64-local.iso`), but it predates the package
+  audit and verbose-boot change, so rebuild before testing.
 - The first headless build failed resolving the install set because the
   desktop runtime's desktop dependencies were not in the server mirror; fixed
   by the server runtime package above. Rebuild to confirm.
