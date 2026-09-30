@@ -66,7 +66,7 @@ stack), `provides=omarchy`, `conflicts=omarchy`.
 
 ## Package set
 
-`install/omarchy-server.packages` was audited on 2026-09-29. It keeps full dev parity with the desktop (ruby, dotnet-runtime, clang/llvm, DB client libs, lua/luarocks) so one config serves both. It adds server ops tools (rsync, wget, smartmontools, nvme-cli, lm_sensors, bind, mtr, tcpdump, iperf3, ethtool, lsof, strace), and it restores `herdr`, `tobi-try`, `qemu-user-static-binfmt` (so `docker buildx` can build for other CPU architectures) and `avahi` + `nss-mdns` (`<host>.local`; ufw's stock before.rules already allow mDNS). `libsecret` was dropped: nothing on a server provides a keyring service for it. CPU microcode and `tailscale` are not in the manifest. They reach the mirror through `omarchy-iso/builder/archinstall.packages`, and archinstall picks the microcode.
+`install/omarchy-server.packages` was audited on 2026-09-29. It keeps full dev parity with the desktop (ruby, dotnet-runtime, clang/llvm, DB client libs, lua/luarocks) so one config serves both. It adds server ops tools (rsync, wget, smartmontools, nvme-cli, lm_sensors, bind, mtr, tcpdump, iperf3, ethtool, lsof, strace), and it restores `herdr`, `tobi-try`, `qemu-user-static-binfmt` (so `docker buildx` can build for other CPU architectures) and `avahi` + `nss-mdns` (`<host>.local`; ufw's stock before.rules already allow mDNS). `libsecret` was dropped: nothing on a server provides a keyring service for it. `install/omarchy-server-other.packages` is the server's mirror-only list, the counterpart of `omarchy-other.packages`: packages that hardware scripts install only when they detect the hardware. It holds the NVIDIA compute driver (`nvidia-open-dkms` or `nvidia-580xx-dkms` plus utils; the server branch of `hardware/nvidia.sh` skips the lib32/libva desktop extras) and `thermald`/`intel-lpmd` for a laptop running as a server. The server skips the bluetooth, vulkan, Intel video acceleration and speaker-tuning hardware scripts entirely, and the theme, browser-policy and lock-screen PAM config scripts. CPU microcode and `tailscale` are not in the manifest. They reach the mirror through `omarchy-iso/builder/archinstall.packages`, and archinstall picks the microcode.
 
 Plymouth still gets installed because `omarchy-settings` depends on it, but `login/verbose-boot.sh` never lets it run. It writes `/etc/mkinitcpio.conf.d/omarchy_server_boot.conf`, which removes the `plymouth` hook, and `/etc/limine-entry-tool.d/omarchy-server-boot.conf`. limine drop-ins can only add kernel flags, not remove them, so the second file adds `plymouth.enable=0` and louder log levels after the `quiet splash loglevel=0 …` flags from `omarchy-defaults.conf`. The kernel and systemd use the last value given.
 
@@ -84,19 +84,23 @@ server manifest.
 - `install/helpers/profile.sh` — resolves+exports `OMARCHY_PROFILE`
 - `install/login/headless.sh` — multi-user.target + tty1 autologin (validated username)
 - `install/login/verbose-boot.sh` — drops the plymouth hook and quiet cmdline on server
-- `install/login/all.sh`, `install/config/enable-services.sh` — profile branches
+- `install/omarchy-server-other.packages` — mirror-only server packages (NVIDIA compute driver, laptop Intel daemons)
+- `install/login/all.sh`, `install/config/enable-services.sh`, `install/config/all.sh`, `install/hardware/all.sh` — profile branches
+- `install/config/increase-lockout-limit.sh` — leaves `sddm-autologin` alone on server
+- `install/hardware/nvidia.sh` — server installs the compute driver only
+- `bin/omarchy-apply-hardware` — sources the profile helper
 - `install/config/firewall.sh` — server opens SSH (not LocalSend) through ufw
 - `install/user/all.sh` — keeps git+mise, guards desktop leaves
 - `bin/omarchy-apply-system` — sources the profile helper
 - `bin/omarchy-provision-user` — guards graphical finalization
 - `bin/omarchy-pkg-runtime` — names the installed runtime package; used by
   `omarchy-version`, `-debug`, `-update-available`, `-channel-current`, `-channel-set`
-- `test/shell.d/server-profile-test.sh` — 18 tests; server cases also in the
+- `test/shell.d/server-profile-test.sh` — 26 tests; server cases also in the
   channel, version and update-available tests
 
 `omarchy-iso`:
 - `bin/omarchy-iso-make` — `--headless` flag → `OMARCHY_PROFILE`
-- `builder/build-iso.sh` — server-only mirror, ships manifest, bakes marker,
+- `builder/build-iso.sh` — server-only mirror (server + server-other lists), ships manifest, bakes marker,
   headless dashboard count
 - `orchestrator/context.py` — profile resolution, stock-kernel default + coercion
 - `orchestrator/phases_impl.py` — server manifest selection, target marker,
@@ -160,11 +164,12 @@ Manual QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
 
 ## Remaining
 
-- Rebuild the ISO (see Build; needs sudo in a real terminal) and get a green run of the integration scenario (see Test). The current `release/omarchy-2026.09.29-x86_64-local.iso` predates the fixes below, the package audit and the verbose-boot change, so it must be rebuilt first. One command does both: `./bin/omarchy-iso-make --headless --no-boot-offer --local-source ../omarchy ../omarchy-pkgs && ./test/integration release/omarchy-*-local.iso headless-server --memory 4096 --no-preview 2>&1 | tee ~/integration.log`.
-- History of 2026-09-29 attempts, each fixed and awaiting a rebuild to confirm:
+- Rebuild the ISO (see Build; needs sudo in a real terminal) and get a green run of the integration scenario (see Test). Remove older ISOs from `release/` first: the integration command's `omarchy-*-local.iso` glob should match exactly one file. One command does both: `rm -f release/*.iso && ./bin/omarchy-iso-make --headless --no-boot-offer --local-source ../omarchy ../omarchy-pkgs && ./test/integration release/omarchy-*-local.iso headless-server --memory 4096 --no-preview 2>&1 | tee ~/integration.log`.
+- History of attempts, each fixed and awaiting a rebuild to confirm:
   - Build 1 failed resolving the install set: the desktop runtime's desktop dependencies were not in the server mirror. Fixed by the server runtime package above.
   - Integration run 1 halted at once with `TypeError: Installer.sanity_check() got an unexpected keyword argument 'offline'`: the build pulled archinstall 4.5, which dropped that flag. Fixed in omarchy-iso `e49dde5`. The API audit found no other 4.5 incompatibilities: every imported name exists, and no call passes an argument 4.5 rejects.
   - Integration run 2 failed in pacstrap: the configurator's `audio_config: pipewire` made archinstall ask for `pipewire-alsa`, `pipewire-jack`, `pipewire-pulse`, `gst-plugin-pipewire` and `wireplumber`, which are not in the server mirror. Fixed in omarchy-iso `7deef47` (server skips application selections). Every package archinstall 4.5 can add itself (base, sudo, mkinitcpio, microcode, iwd, terminus-font, accessibility tools, lvm2, libfido2, zram-generator, efibootmgr, limine, plymouth) was confirmed present in the server mirror.
+  - Integration run 3 (2026-09-30) got through pacstrap and failed in `omarchy-apply-system`: `increase-lockout-limit.sh` edited `/etc/pam.d/sddm-autologin`, which a server lacks. Fixed with the config and hardware profile branches above. The same audit found that `hardware/bluetooth.sh` would have failed next (no bluez), and that GPU scripts would have failed on real hardware (packages not in the mirror).
 - Optionally open PRs to `omacom/omarchy`, `omacom/omarchy-iso` and
   `omacom/omarchy-pkgs` (the pkgs change must land for non-local headless ISOs).
 - Not in scope (deliberately): ARM/Raspberry-Pi, cloud-VPS images, a bootstrap
