@@ -32,8 +32,10 @@ Install-time flow (server):
    bakes `/usr/share/omarchy-iso/profile` = `server`.
 3. The Python orchestrator (`orchestrator/`) resolves the profile, defaults the
    kernel to stock `linux` (and coerces a config's `linux-omarchy` → `linux`,
-   since the server mirror carries only stock), pacstraps `omarchy-server.packages`,
-   writes `/etc/omarchy/profile` into the target, then runs
+   since the server mirror carries only stock), skips archinstall's application
+   selections (PipeWire audio, Bluetooth; the server mirror lacks their packages),
+   pacstraps `omarchy-server.packages`, writes `/etc/omarchy/profile` into the
+   target, then runs
    `omarchy-apply-system --first-install` in the chroot.
 4. `omarchy-apply-system` sources the profile and takes the server branch:
    `login/headless.sh` (multi-user.target + tty1 console autologin),
@@ -98,7 +100,8 @@ server manifest.
   headless dashboard count
 - `orchestrator/context.py` — profile resolution, stock-kernel default + coercion
 - `orchestrator/phases_impl.py` — server manifest selection, target marker,
-  `configure_login` server no-op
+  `configure_login` server no-op, `_wants_application_selections` (no audio/Bluetooth on server)
+- `orchestrator/archinstall_adapter.py` — `sanity_check()` passes archinstall's `offline` flag only to releases that accept it (4.5 dropped it; affects desktop ISOs too); `test/unit/test_archinstall_compat.py` covers 4.4 and 4.5
 - `test/unit/test_server_profile.py` — profile/kernel/login/manifest tests
 - `builder/build-omarchy-packages.sh` — builds the server runtime from its
   split recipe; `test/unit/runtime-package-selection-test.sh` covers both
@@ -131,7 +134,7 @@ omarchy-dev split recipe, plus omarchy-settings-dev and omarchy-nvim); the rest,
 
 Unit tests (no Docker/VM; run from each repo):
 - `omarchy`: `./test/shell` (or just `bash test/shell.d/server-profile-test.sh`)
-- `omarchy-iso`: `./test/all` (shell unit tests + 84 stdlib unittest tests;
+- `omarchy-iso`: `./test/all` (shell unit tests + 89 stdlib unittest tests;
   no pytest).
 - Pre-existing failures unrelated to this branch (they fail on the `quattro`
   merge base too): `omarchy`'s `test/cli` "vscode generated theme references
@@ -140,12 +143,11 @@ Unit tests (no Docker/VM; run from each repo):
   omarchy-kernel-migration, passwordless-grant-lifecycle, runtime-smoke,
   screenshot-sanity, video-background.
 
-Verify a built ISO (before booting): loopback-mount it and check
-`usr/share/omarchy-iso/profile` = `server`, that `omarchy-server.packages` is
-present, and that the offline mirror under `var/cache/omarchy/mirror/offline`
-contains `openssh` and a `linux-*` package but no `hyprland`/`sddm`.
+Verify a built ISO (before booting): the offline mirror lives in `airootfs.sfs` inside the ISO, and this machine has no `unsquashfs`, but the build leaves the same mirror in the host cache at `~/.cache/omarchy/iso_edge/airootfs/var/cache/omarchy/mirror/offline/`. Check it holds `omarchy-server-dev`, `openssh` and `linux`, and no `hyprland`/`sddm`/`quickshell`. The 2026-09-29 build did (616 packages, 1.8G). `pipewire` is also there because `builder/archinstall.packages` lists it for every ISO; the server install no longer asks for it.
 
-QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
+Integration run: `./test/integration release/<iso> headless-server --memory 4096 --no-preview` does the unattended cidata install and the scenario's assertions in one go. It needs `qemu-full` and `mtools` (now installed; the runner installs them with sudo otherwise). Use `--memory 4096`, since the default 8G VM is tight on this 22G machine. Failure screenshots and the serial log land in `test-runs/<iso>-integration/runs/<timestamp>-install/`.
+
+Manual QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
 - Build a `cidata` drive with a hostname + an `authorized_keys` (default SSH key
   `~/.ssh/id_ed25519.pub`) so the install runs unattended and headless, per the
   cidata section of `omarchy-iso/README.md` (it already supports
@@ -158,15 +160,11 @@ QEMU boot test (`/dev/kvm` is available, world-accessible — no sudo):
 
 ## Remaining
 
-- Build the ISO (see Build; needs sudo in a real terminal) and get a green run
-  of the integration scenario, which does the whole QEMU install + assertions:
-  `cd ~/Projects/omarchy-iso && ./test/integration release/<iso> headless-server`
-  (`--reuse-base` on reruns). Not yet run. An ISO was built on 2026-09-29
-  (`release/omarchy-2026.09.29-x86_64-local.iso`), but it predates the package
-  audit and verbose-boot change, so rebuild before testing.
-- The first headless build failed resolving the install set because the
-  desktop runtime's desktop dependencies were not in the server mirror; fixed
-  by the server runtime package above. Rebuild to confirm.
+- Rebuild the ISO (see Build; needs sudo in a real terminal) and get a green run of the integration scenario (see Test). The current `release/omarchy-2026.09.29-x86_64-local.iso` predates the fixes below, the package audit and the verbose-boot change, so it must be rebuilt first. One command does both: `./bin/omarchy-iso-make --headless --no-boot-offer --local-source ../omarchy ../omarchy-pkgs && ./test/integration release/omarchy-*-local.iso headless-server --memory 4096 --no-preview 2>&1 | tee ~/integration.log`.
+- History of 2026-09-29 attempts, each fixed and awaiting a rebuild to confirm:
+  - Build 1 failed resolving the install set: the desktop runtime's desktop dependencies were not in the server mirror. Fixed by the server runtime package above.
+  - Integration run 1 halted at once with `TypeError: Installer.sanity_check() got an unexpected keyword argument 'offline'`: the build pulled archinstall 4.5, which dropped that flag. Fixed in omarchy-iso `e49dde5`. The API audit found no other 4.5 incompatibilities: every imported name exists, and no call passes an argument 4.5 rejects.
+  - Integration run 2 failed in pacstrap: the configurator's `audio_config: pipewire` made archinstall ask for `pipewire-alsa`, `pipewire-jack`, `pipewire-pulse`, `gst-plugin-pipewire` and `wireplumber`, which are not in the server mirror. Fixed in omarchy-iso `7deef47` (server skips application selections). Every package archinstall 4.5 can add itself (base, sudo, mkinitcpio, microcode, iwd, terminus-font, accessibility tools, lvm2, libfido2, zram-generator, efibootmgr, limine, plymouth) was confirmed present in the server mirror.
 - Optionally open PRs to `omacom/omarchy`, `omacom/omarchy-iso` and
   `omacom/omarchy-pkgs` (the pkgs change must land for non-local headless ISOs).
 - Not in scope (deliberately): ARM/Raspberry-Pi, cloud-VPS images, a bootstrap
