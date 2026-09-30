@@ -50,6 +50,37 @@ picked=$(login_pick desktop)
 grep -q "login/sddm.sh" <<<"$picked" || fail "desktop login still runs sddm"
 pass "desktop login still runs sddm"
 
+grep -q "login/verbose-boot.sh" <<<"$(login_pick server)" || fail "server login runs the verbose-boot leaf"
+if grep -q "login/verbose-boot.sh" <<<"$(login_pick desktop)"; then fail "desktop keeps the boot splash"; fi
+pass "only the server swaps the boot splash for verbose boot"
+
+# Run verbose-boot.sh against a scratch root and check the drop-ins it writes
+# actually strip plymouth from HOOKS and end the cmdline on the verbose values.
+boot_root=$(mktemp -d)
+trap 'rm -f "$profile_file"; rm -rf "$boot_root"' EXIT
+sed "s#/etc/#$boot_root/etc/#g" "$INSTALL/login/verbose-boot.sh" | bash ||
+  fail "verbose-boot leaf runs"
+hooks=$(bash -c 'source "$1"; source "$2"; printf "%s " "${HOOKS[@]}"' _ \
+  "$ROOT/etc/mkinitcpio.conf.d/omarchy_hooks.conf" \
+  "$boot_root/etc/mkinitcpio.conf.d/omarchy_server_boot.conf")
+if [[ " $hooks " == *" plymouth "* ]]; then fail "server initramfs drops the plymouth hook" "hooks: $hooks"; fi
+[[ " $hooks " == *" encrypt "* && " $hooks " == *" btrfs-overlayfs "* ]] ||
+  fail "server initramfs keeps the other hooks" "hooks: $hooks"
+[[ omarchy_hooks.conf < omarchy_server_boot.conf ]] ||
+  fail "server hooks drop-in sorts after omarchy_hooks.conf"
+pass "server initramfs drops only the plymouth hook"
+
+cmdline=$(cat "$ROOT/etc/limine-entry-tool.d/omarchy-defaults.conf" \
+  "$boot_root/etc/limine-entry-tool.d/omarchy-server-boot.conf" |
+  sed -n 's/^KERNEL_CMDLINE\[default\]+="\(.*\)"$/\1/p' | tr '\n' ' ')
+last() { grep -o "$1=[^ ]*" <<<"$cmdline" | tail -1; }
+[[ $(last loglevel) == "loglevel=4" ]] || fail "server cmdline ends on a visible loglevel" "cmdline: $cmdline"
+[[ $(last systemd.show_status) == "systemd.show_status=auto" ]] || fail "server cmdline re-enables systemd status"
+[[ $(last plymouth.enable) == "plymouth.enable=0" ]] || fail "server cmdline disables plymouth"
+[[ omarchy-defaults.conf < omarchy-server-boot.conf ]] ||
+  fail "server cmdline drop-in sorts after omarchy-defaults.conf"
+pass "server cmdline overrides the quiet splash flags"
+
 grep -Fq "systemctl set-default multi-user.target" "$INSTALL/login/headless.sh" ||
   fail "headless login boots to multi-user.target"
 pass "headless login boots to multi-user.target"
