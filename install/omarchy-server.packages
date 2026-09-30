@@ -35,6 +35,22 @@ inetutils
 socat
 whois
 qemu-guest-agent
+avahi
+nss-mdns
+rsync
+wget
+
+# --- Server ops / diagnostics ---
+smartmontools
+nvme-cli
+lm_sensors
+bind
+mtr
+tcpdump
+iperf3
+ethtool
+lsof
+strace
 
 # --- Shell & the Omarchy "feel" (portable, no display needed) ---
 bash-completion
@@ -74,13 +90,15 @@ inotify-tools
 inxi
 jq
 dua-cli
-libsecret
+herdr
+tobi-try
 
 # --- Containers ---
 docker
 docker-buildx
 docker-compose
 lazydocker
+qemu-user-static-binfmt
 
 # --- Language runtimes / DB client libs (dev-server parity) ---
 ruby

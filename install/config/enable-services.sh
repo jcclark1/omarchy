@@ -17,8 +17,9 @@ systemctl enable systemd-oomd.service
 
 if [[ $OMARCHY_PROFILE == "server" ]]; then
   # Headless: SSH is the primary access path; no display manager, printing, or
-  # mDNS/power-profile desktop daemons.
+  # power-profile desktop daemons. mDNS stays so the box answers as <host>.local.
   systemctl enable sshd.service
+  systemctl enable avahi-daemon.service
 else
   systemctl enable cups.service
   systemctl enable avahi-daemon.service

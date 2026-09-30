@@ -71,7 +71,9 @@ services() {
 srv=$(services server)
 grep -q "systemctl enable sshd.service" <<<"$srv" || fail "server enables sshd"
 if grep -q "sddm.service" <<<"$srv"; then fail "server does not enable sddm"; fi
-pass "server enables sshd and not sddm"
+grep -q "systemctl enable avahi-daemon.service" <<<"$srv" || fail "server enables avahi for .local names"
+if grep -qE "cups|power-profiles" <<<"$srv"; then fail "server does not enable cups or power-profiles"; fi
+pass "server enables sshd and avahi, not sddm/cups/power-profiles"
 
 dsk=$(services desktop)
 grep -q "systemctl enable sddm.service" <<<"$dsk" || fail "desktop still enables sddm"
@@ -102,10 +104,11 @@ pass "desktop user setup runs the full leaf set"
 
 manifest="$INSTALL/omarchy-server.packages"
 pkgs=$(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$manifest")
-for want in openssh mise-bin git docker linux starship btrfs-progs; do
+for want in openssh mise-bin git docker linux starship btrfs-progs \
+  avahi nss-mdns rsync smartmontools lm_sensors herdr qemu-user-static-binfmt; do
   grep -qxF "$want" <<<"$pkgs" || fail "server manifest includes $want"
 done
-for unwanted in hyprland sddm chromium linux-omarchy nvidia-dkms; do
+for unwanted in hyprland sddm chromium linux-omarchy nvidia-dkms libsecret; do
   if grep -qxF "$unwanted" <<<"$pkgs"; then fail "server manifest excludes $unwanted"; fi
 done
 pass "server manifest keeps the CLI/server core and drops the desktop stack"
