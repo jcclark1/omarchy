@@ -3,6 +3,8 @@
 # omarchy:summary=Install the Tailscale mesh VPN service and a web app for the Tailscale Admin Console.
 # omarchy:requires-sudo=true
 
+source "${OMARCHY_PATH:-/usr/share/omarchy}/install/helpers/profile.sh"
+
 echo -e "\nInstalling Tailscale..."
 omarchy-pkg-add tailscale
 
@@ -12,6 +14,17 @@ sudo tailscale up --accept-routes
 
 echo -e "\nAllowing $USER to manage Tailscale..."
 sudo tailscale set --operator="$USER"
+
+# A server trusts its tailnet through the default-deny firewall, as an
+# unattended install that joins one does. It has no graphical session, bar or
+# browser for the Taildrop receiver, the bar plugin or the Admin Console web app.
+if [[ $OMARCHY_PROFILE == "server" ]]; then
+  if omarchy-cmd-present ufw; then
+    echo -e "\nAllowing the tailnet through the firewall..."
+    sudo ufw allow in on tailscale0
+  fi
+  exit 0
+fi
 
 echo -e "\nReceiving Taildrop files in $HOME/Downloads..."
 systemctl --user enable --now omarchy-tailscale-receive.service

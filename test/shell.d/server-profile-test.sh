@@ -270,3 +270,39 @@ pass "server installs Bluetooth only when an adapter is present"
 
 grep -qxF wireless-regdb <<<"$pkgs" || fail "server manifest includes wireless-regdb for Wi-Fi"
 pass "server manifest includes the Wi-Fi regulatory database"
+
+# The Tailscale service commands skip the desktop-only steps (Taildrop
+# receiver, bar plugin, Admin Console web app) on a server.
+tailscale_service_calls() {
+  local stubs
+  stubs=$(mktemp -d)
+  for cmd in sudo systemctl tailscale omarchy-cmd-present omarchy-pkg-add omarchy-pkg-drop omarchy-plugin-enable \
+    omarchy-plugin-disable omarchy-webapp-install omarchy-webapp-remove; do
+    printf '#!/bin/bash\necho "%s $*"\n' "$cmd" >"$stubs/$cmd"
+    chmod +x "$stubs/$cmd"
+  done
+  PATH="$stubs:$PATH" OMARCHY_PATH="$ROOT" OMARCHY_PROFILE="$1" bash "$ROOT/bin/$2" 2>&1
+  rm -rf "$stubs"
+}
+
+got=$(tailscale_service_calls server omarchy-install-service-tailscale)
+grep -q "sudo systemctl enable --now tailscaled.service" <<<"$got" || fail "server tailscale install starts tailscaled" "got: $got"
+grep -q "sudo tailscale up" <<<"$got" || fail "server tailscale install brings the node up"
+grep -q "sudo ufw allow in on tailscale0" <<<"$got" || fail "server tailscale install allows the tailnet through ufw"
+if grep -qE "omarchy-plugin-enable|omarchy-webapp-install|systemctl --user" <<<"$got"; then
+  fail "server tailscale install skips the desktop steps" "got: $got"
+fi
+got=$(tailscale_service_calls desktop omarchy-install-service-tailscale)
+grep -q "omarchy-plugin-enable omarchy.tailscale" <<<"$got" || fail "desktop tailscale install adds the bar plugin"
+grep -q "omarchy-webapp-install Tailscale" <<<"$got" || fail "desktop tailscale install adds the web app"
+if grep -q "ufw" <<<"$got"; then fail "desktop tailscale install leaves ufw alone"; fi
+pass "tailscale install skips the bar, web app and Taildrop on server"
+
+got=$(tailscale_service_calls server omarchy-remove-service-tailscale)
+grep -q "omarchy-pkg-drop tailscale" <<<"$got" || fail "server tailscale removal drops the package"
+if grep -qE "omarchy-plugin-disable|omarchy-webapp-remove" <<<"$got"; then
+  fail "server tailscale removal skips the desktop steps" "got: $got"
+fi
+grep -q "omarchy-plugin-disable omarchy.tailscale" <<<"$(tailscale_service_calls desktop omarchy-remove-service-tailscale)" ||
+  fail "desktop tailscale removal disables the bar plugin"
+pass "tailscale removal skips the bar and web app on server"
