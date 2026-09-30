@@ -271,6 +271,9 @@ pass "server installs Bluetooth only when an adapter is present"
 grep -qxF wireless-regdb <<<"$pkgs" || fail "server manifest includes wireless-regdb for Wi-Fi"
 pass "server manifest includes the Wi-Fi regulatory database"
 
+grep -qxF tailscale <<<"$pkgs" || fail "server manifest includes tailscale"
+pass "server manifest includes tailscale"
+
 # The Tailscale service commands skip the desktop-only steps (Taildrop
 # receiver, bar plugin, Admin Console web app) on a server.
 tailscale_service_calls() {

@@ -38,6 +38,9 @@ wireless-regdb
 qemu-guest-agent
 avahi
 nss-mdns
+# Installed, not enabled: omarchy-install-service-tailscale (or an autoinstall
+# auth key) starts it and joins the tailnet.
+tailscale
 rsync
 wget
 
