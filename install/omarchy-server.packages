@@ -34,6 +34,7 @@ ufw-docker
 inetutils
 socat
 whois
+wireless-regdb
 qemu-guest-agent
 avahi
 nss-mdns

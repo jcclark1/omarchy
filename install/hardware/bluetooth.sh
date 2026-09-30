@@ -1,4 +1,13 @@
-systemctl enable bluetooth.service
+if [[ $OMARCHY_PROFILE == "server" ]]; then
+  # A server gets Bluetooth only when it has an adapter; bluez is not in its
+  # package set otherwise.
+  if compgen -G "${OMARCHY_BLUETOOTH_CLASS_PATH:-/sys/class/bluetooth}/hci*" >/dev/null; then
+    omarchy-pkg-add bluez bluez-utils
+    systemctl enable bluetooth.service
+  fi
+else
+  systemctl enable bluetooth.service
+fi
 
 # AutoEnable stays at its stock default on purpose. It was set to false here to
 # persist the power state, which it never did: BlueZ has no such behaviour, so

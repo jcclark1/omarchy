@@ -209,11 +209,11 @@ hardware_steps() {
 }
 
 steps=$(hardware_steps server)
-grep -q "hardware/nvidia.sh" <<<"$steps" || fail "server still sets up NVIDIA"
-for desktop_leaf in bluetooth.sh vulkan.sh intel/video-acceleration.sh speaker-tuning.sh; do
-  if grep -q "hardware/$desktop_leaf" <<<"$steps"; then fail "server skips hardware leaf $desktop_leaf"; fi
+for leaf in nvidia.sh bluetooth.sh vulkan.sh intel/video-acceleration.sh; do
+  grep -q "hardware/$leaf" <<<"$steps" || fail "server runs hardware-detected leaf $leaf"
 done
-pass "server hardware skips bluetooth, graphics and audio leaves"
+if grep -q "hardware/speaker-tuning.sh" <<<"$steps"; then fail "server skips speaker tuning (no audio stack)"; fi
+pass "server runs the hardware-detected driver leaves and skips speaker tuning"
 
 steps=$(hardware_steps desktop)
 for desktop_leaf in bluetooth.sh vulkan.sh intel/video-acceleration.sh speaker-tuning.sh; do
@@ -250,6 +250,52 @@ for gsp in 1 0; do
 done
 grep -qx "lib32-nvidia-utils" <<<"$(nvidia_packages desktop 1)" || fail "desktop nvidia keeps lib32"
 pass "server nvidia installs only compute packages, all in the server mirror"
+
+# Bluetooth on a server follows the hardware: bluez only with an adapter.
+bluetooth_actions() {
+  local class_dir
+  class_dir=$(mktemp -d)
+  [[ $2 == "adapter" ]] && mkdir "$class_dir/hci0"
+  OMARCHY_PROFILE="$1" OMARCHY_BLUETOOTH_CLASS_PATH="$class_dir" bash -c '
+    omarchy-pkg-add(){ printf "pkg-add %s\n" "$*"; }
+    systemctl(){ printf "systemctl %s\n" "$*"; }
+    source "'"$INSTALL"'/hardware/bluetooth.sh"'
+  rm -rf "$class_dir"
+}
+
+got=$(bluetooth_actions server adapter)
+grep -q "pkg-add bluez bluez-utils" <<<"$got" || fail "server with an adapter installs bluez" "got: $got"
+grep -q "systemctl enable bluetooth.service" <<<"$got" || fail "server with an adapter enables bluetooth"
+[[ -z $(bluetooth_actions server none) ]] || fail "server without an adapter leaves bluetooth alone"
+got=$(bluetooth_actions desktop none)
+grep -q "systemctl enable bluetooth.service" <<<"$got" || fail "desktop always enables bluetooth"
+if grep -q "pkg-add" <<<"$got"; then fail "desktop does not install bluez here"; fi
+pass "server installs Bluetooth only when an adapter is present"
+
+# Every package a server hardware leaf can add must be in the server mirror.
+# vulkan.sh keeps its package names in a map, so run it against each x86 GPU
+# vendor instead of reading them out of the script.
+for gpu in "VGA compatible controller: Intel Corporation UHD Graphics" \
+  "VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi"; do
+  got=$(GPU="$gpu" bash -c '
+    lspci(){ echo "00:02.0 $GPU"; }
+    omarchy-pkg-add(){ printf "%s\n" "$@"; }
+    source "'"$INSTALL"'/hardware/vulkan.sh"')
+  [[ -n $got ]] || fail "vulkan.sh picks a driver for: $gpu"
+  while read -r pkg; do
+    grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for vulkan.sh"
+  done <<<"$got"
+done
+
+for leaf in intel/video-acceleration.sh bluetooth.sh; do
+  while read -r pkg; do
+    grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for $leaf"
+  done < <(grep -o 'omarchy-pkg-add [^)]*' "$INSTALL/hardware/$leaf" | sed 's/omarchy-pkg-add//; s/"[^"]*"//g' | tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9.+-]*$')
+done
+pass "server mirror carries every package the hardware leaves add"
+
+grep -qxF wireless-regdb <<<"$pkgs" || fail "server manifest includes wireless-regdb for Wi-Fi"
+pass "server manifest includes the Wi-Fi regulatory database"
 
 for pkg in thermald intel-lpmd; do
   grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for laptop servers"
