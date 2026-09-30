@@ -70,15 +70,16 @@ if [[ " $hooks " == *" plymouth "* ]]; then fail "server initramfs drops the ply
   fail "server hooks drop-in sorts after omarchy_hooks.conf"
 pass "server initramfs drops only the plymouth hook"
 
-cmdline=$(cat "$ROOT/etc/limine-entry-tool.d/omarchy-defaults.conf" \
-  "$boot_root/etc/limine-entry-tool.d/omarchy-server-boot.conf" |
-  sed -n 's/^KERNEL_CMDLINE\[default\]+="\(.*\)"$/\1/p' | tr '\n' ' ')
+# Model limine-entry-tool: drop-ins load in name order, and each addition is
+# placed before the ones loaded earlier (so /etc/default/limine's root= leads
+# the real cmdline). Reversing the additions in load order gives the cmdline.
+cp "$ROOT/etc/limine-entry-tool.d/omarchy-defaults.conf" "$boot_root/etc/limine-entry-tool.d/"
+cmdline=$(for conf in "$boot_root"/etc/limine-entry-tool.d/*.conf; do cat "$conf"; done |
+  sed -n 's/^KERNEL_CMDLINE\[default\]+="\(.*\)"$/\1/p' | tac | tr '\n' ' ')
 last() { grep -o "$1=[^ ]*" <<<"$cmdline" | tail -1; }
 [[ $(last loglevel) == "loglevel=4" ]] || fail "server cmdline ends on a visible loglevel" "cmdline: $cmdline"
 [[ $(last systemd.show_status) == "systemd.show_status=auto" ]] || fail "server cmdline re-enables systemd status"
 [[ $(last plymouth.enable) == "plymouth.enable=0" ]] || fail "server cmdline disables plymouth"
-[[ omarchy-defaults.conf < omarchy-server-boot.conf ]] ||
-  fail "server cmdline drop-in sorts after omarchy-defaults.conf"
 pass "server cmdline overrides the quiet splash flags"
 
 grep -Fq "systemctl set-default multi-user.target" "$INSTALL/login/headless.sh" ||

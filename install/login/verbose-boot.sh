@@ -15,11 +15,13 @@ HOOKS=("${_omarchy_hooks[@]}")
 unset _omarchy_hooks _omarchy_hook
 EOF
 
-# limine-entry-tool drop-ins can only append to the cmdline, so override the
-# quiet flags from omarchy-defaults.conf with later values (the kernel and
-# systemd honour the last occurrence). plymouth.enable=0 also keeps the
-# rootfs plymouth-start.service from showing the splash.
+# limine-entry-tool drop-ins can only add to the cmdline, so override the
+# quiet flags from omarchy-defaults.conf with later occurrences (the kernel and
+# systemd honour the last one). limine-entry-tool places each KERNEL_CMDLINE
+# addition before the ones loaded earlier, so the file loaded first lands
+# last: the 00- prefix sorts it ahead of omarchy-defaults.conf. plymouth.enable=0
+# also keeps the rootfs plymouth-start.service from showing the splash.
 install -d /etc/limine-entry-tool.d
-cat >/etc/limine-entry-tool.d/omarchy-server-boot.conf <<'EOF'
+cat >/etc/limine-entry-tool.d/00-omarchy-server-boot.conf <<'EOF'
 KERNEL_CMDLINE[default]+=" plymouth.enable=0 loglevel=4 systemd.show_status=auto rd.udev.log_level=3 vt.global_cursor_default=1"
 EOF
