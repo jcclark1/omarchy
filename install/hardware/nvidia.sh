@@ -1,7 +1,6 @@
 if lspci | grep -qi 'nvidia'; then
   # A server gets the compute driver only: no 32-bit (multilib) or VA-API
-  # video packages. Its offline mirror carries exactly this set, from
-  # install/omarchy-server-other.packages.
+  # video packages.
   if omarchy-hw-nvidia-gsp && [[ $OMARCHY_PROFILE == "server" ]]; then
     PACKAGES=(nvidia-open-dkms nvidia-utils)
   elif omarchy-hw-nvidia-gsp; then

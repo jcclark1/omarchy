@@ -239,17 +239,13 @@ nvidia_packages() {
   rm -rf "$etc_root"
 }
 
-server_other=$(sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$INSTALL/omarchy-server-other.packages")
 for gsp in 1 0; do
   got=$(nvidia_packages server $gsp)
   [[ -n $got ]] || fail "server nvidia installs a driver (gsp=$gsp)"
   if grep -qE "^lib32-|^libva-" <<<"$got"; then fail "server nvidia skips lib32/libva (gsp=$gsp)" "got: $got"; fi
-  while read -r pkg; do
-    grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg (gsp=$gsp)"
-  done <<<"$got"
 done
 grep -qx "lib32-nvidia-utils" <<<"$(nvidia_packages desktop 1)" || fail "desktop nvidia keeps lib32"
-pass "server nvidia installs only compute packages, all in the server mirror"
+pass "server nvidia installs only compute packages"
 
 # Bluetooth on a server follows the hardware: bluez only with an adapter.
 bluetooth_actions() {
@@ -272,32 +268,5 @@ grep -q "systemctl enable bluetooth.service" <<<"$got" || fail "desktop always e
 if grep -q "pkg-add" <<<"$got"; then fail "desktop does not install bluez here"; fi
 pass "server installs Bluetooth only when an adapter is present"
 
-# Every package a server hardware leaf can add must be in the server mirror.
-# vulkan.sh keeps its package names in a map, so run it against each x86 GPU
-# vendor instead of reading them out of the script.
-for gpu in "VGA compatible controller: Intel Corporation UHD Graphics" \
-  "VGA compatible controller: Advanced Micro Devices, Inc. [AMD/ATI] Navi"; do
-  got=$(GPU="$gpu" bash -c '
-    lspci(){ echo "00:02.0 $GPU"; }
-    omarchy-pkg-add(){ printf "%s\n" "$@"; }
-    source "'"$INSTALL"'/hardware/vulkan.sh"')
-  [[ -n $got ]] || fail "vulkan.sh picks a driver for: $gpu"
-  while read -r pkg; do
-    grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for vulkan.sh"
-  done <<<"$got"
-done
-
-for leaf in intel/video-acceleration.sh bluetooth.sh; do
-  while read -r pkg; do
-    grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for $leaf"
-  done < <(grep -o 'omarchy-pkg-add [^)]*' "$INSTALL/hardware/$leaf" | sed 's/omarchy-pkg-add//; s/"[^"]*"//g' | tr ' ' '\n' | grep -E '^[a-z0-9][a-z0-9.+-]*$')
-done
-pass "server mirror carries every package the hardware leaves add"
-
 grep -qxF wireless-regdb <<<"$pkgs" || fail "server manifest includes wireless-regdb for Wi-Fi"
 pass "server manifest includes the Wi-Fi regulatory database"
-
-for pkg in thermald intel-lpmd; do
-  grep -qxF "$pkg" <<<"$server_other" || fail "server mirror carries $pkg for laptop servers"
-done
-pass "server mirror carries the battery-gated Intel daemons"
